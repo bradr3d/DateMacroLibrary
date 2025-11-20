@@ -1,8 +1,7 @@
 import DateMacroLibrary
 
-let a = 17
-let b = 25
+// Example usage of LocalizedDate macro would be in a SwiftData model:
+// @LocalizedDate(withTimeProperty: "hasDueTime", isDueDate: true)
+// public var dueLocalDate: Date?
 
-let (result, code) = #stringify(a + b)
-
-print("The value \(result) was produced by the code \"\(code)\"")
+print("DateMacroLibrary macro plugin is ready to use!")

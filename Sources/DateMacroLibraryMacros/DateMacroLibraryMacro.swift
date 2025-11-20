@@ -3,31 +3,149 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// Implementation of the `stringify` macro, which takes an expression
-/// of any type and produces a tuple containing the value of that expression
-/// and the source code that produced the value. For example
-///
-///     #stringify(x + y)
-///
-///  will expand to
-///
-///     (x + y, "x + y")
-public struct StringifyMacro: ExpressionMacro {
+/// Implementation of the `LocalizedDate` macro, which generates GMT/local date conversion properties
+/// 
+/// Usage:
+/// ```swift
+/// @LocalizedDate(baseName: "due", withTimeProperty: "hasDueTime", isDueDate: true, setterSideEffects: "sortDueDate = _dueLocalDate ?? Date.distantFuture; updateMinDate()")
+/// ```
+public struct LocalizedDateMacro: PeerMacro {
     public static func expansion(
-        of node: some FreestandingMacroExpansionSyntax,
+        of node: AttributeSyntax,
+        providingPeersOf declaration: some DeclSyntaxProtocol,
         in context: some MacroExpansionContext
-    ) -> ExprSyntax {
-        guard let argument = node.arguments.first?.expression else {
-            fatalError("compiler bug: the macro does not have any arguments")
+    ) throws -> [DeclSyntax] {
+        // Extract property name from declaration
+        guard let variableDecl = declaration.as(VariableDeclSyntax.self),
+              let binding = variableDecl.bindings.first,
+              let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
+            throw MacroError.invalidDeclaration
         }
-
-        return "(\(argument), \(literal: argument.description))"
+        
+        // Extract baseName from property name (remove "LocalDate" or "Date" suffix)
+        let baseName: String
+        let localPropertyName: String
+        if identifier.hasSuffix("LocalDate") {
+            let endIndex = identifier.index(identifier.endIndex, offsetBy: -9) // "LocalDate".count
+            baseName = String(identifier[..<endIndex])
+            localPropertyName = identifier // Use the original name
+        } else if identifier.hasSuffix("Date") && !identifier.hasSuffix("LocalDate") {
+            let endIndex = identifier.index(identifier.endIndex, offsetBy: -4) // "Date".count
+            baseName = String(identifier[..<endIndex])
+            localPropertyName = identifier // Use the original name (e.g., "recurringEndDate")
+        } else {
+            throw MacroError.invalidPropertyName(identifier)
+        }
+        
+        // Extract macro arguments
+        let arguments = node.arguments?.as(LabeledExprListSyntax.self) ?? LabeledExprListSyntax([])
+        
+        var withTimeProperty: String?
+        var isDueDate: Bool = true
+        var legacyPropertyName: String?
+        var setterSideEffects: String?
+        
+        for argument in arguments {
+            let label = argument.label?.text
+            if label == "withTimeProperty", let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self) {
+                withTimeProperty = stringLiteral.segments.first?.as(StringSegmentSyntax.self)?.content.text
+            } else if label == "isDueDate", let boolLiteral = argument.expression.as(BooleanLiteralExprSyntax.self) {
+                isDueDate = boolLiteral.literal.text == "true"
+            } else if label == "legacyPropertyName", let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self) {
+                legacyPropertyName = stringLiteral.segments.first?.as(StringSegmentSyntax.self)?.content.text
+            } else if label == "setterSideEffects", let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self) {
+                setterSideEffects = stringLiteral.segments.first?.as(StringSegmentSyntax.self)?.content.text
+            }
+        }
+        
+        // Generate property names
+        let gmtPropertyName = "\(baseName)GMTDate"
+        let cachedPropertyName = "_\(baseName)LocalDate"
+        
+        var properties: [DeclSyntax] = []
+        
+        // Build legacy property if needed
+        if let legacyPropertyName = legacyPropertyName {
+            let legacyProperty = try VariableDeclSyntax(
+                "private var \(raw: legacyPropertyName): Date?"
+            )
+            properties.append(DeclSyntax(legacyProperty))
+        }
+        
+        // Build GMT storage property
+        let gmtProperty = try VariableDeclSyntax(
+            "public var \(raw: gmtPropertyName): Date?"
+        )
+        properties.append(DeclSyntax(gmtProperty))
+        
+        // Build private cached local date property
+        let cachedProperty = try VariableDeclSyntax(
+            "private(set) var \(raw: cachedPropertyName): Date?"
+        )
+        properties.append(DeclSyntax(cachedProperty))
+        
+        // Build getter statements
+        var getterCode = ""
+        
+        // Legacy migration logic
+        if let legacyPropertyName = legacyPropertyName {
+            getterCode += """
+            if \(cachedPropertyName) == nil && \(gmtPropertyName) == nil, let legacy = \(legacyPropertyName) {
+                \(legacyPropertyName) = nil
+                self.\(localPropertyName) = legacy
+            }
+            """
+        }
+        
+        // Cache population logic
+        let withTimeArg = withTimeProperty ?? "false"
+        let isDueDateArg = isDueDate ? "true" : "false"
+        getterCode += """
+        if \(cachedPropertyName) == nil && \(gmtPropertyName) != nil {
+            \(cachedPropertyName) = Self.localDate(from: \(gmtPropertyName), withTime: \(withTimeArg), isDueDate: \(isDueDateArg))
+        }
+        return \(cachedPropertyName)
+        """
+        
+        // Build setter statements  
+        let setterWithTimeArg = withTimeProperty ?? "false"
+        var setterCode = """
+        \(gmtPropertyName) = Self.gmtDate(from: newValue, withTime: \(setterWithTimeArg), isDueDate: \(isDueDateArg))
+        \(cachedPropertyName) = Self.localDate(from: \(gmtPropertyName), withTime: \(setterWithTimeArg), isDueDate: \(isDueDateArg))
+        """
+        
+        // Add setter side effects
+        if let sideEffects = setterSideEffects {
+            setterCode += "\n\(sideEffects)"
+        }
+        
+        // Build computed property
+        let computedProperty = try VariableDeclSyntax(
+            """
+            public var \(raw: localPropertyName): Date? {
+                get {
+                    \(raw: getterCode)
+                }
+                set {
+                    \(raw: setterCode)
+                }
+            }
+            """
+        )
+        properties.append(DeclSyntax(computedProperty))
+        
+        return properties
     }
+}
+
+enum MacroError: Error {
+    case invalidDeclaration
+    case invalidPropertyName(String)
 }
 
 @main
 struct DateMacroLibraryPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
-        StringifyMacro.self,
+        LocalizedDateMacro.self,
     ]
 }
