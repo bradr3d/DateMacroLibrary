@@ -18,7 +18,6 @@
 /// public var dueLocalDate: Date?
 /// ```
 @attached(peer, names: arbitrary)
-@attached(accessor)
 public macro LocalizedDate(
     withTimeProperty: String? = nil,
     isDueDate: Bool = true,
