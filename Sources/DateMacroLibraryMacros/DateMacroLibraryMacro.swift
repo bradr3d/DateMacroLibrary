@@ -53,31 +53,25 @@ public struct LocalizedDateMacro: DeclarationMacro {
         var properties: [DeclSyntax] = []
         
         // Build legacy property if needed
+        // SwiftData automatically persists stored properties in @Model classes
         if let legacyPropertyName = legacyPropertyName {
             let legacyProperty = try VariableDeclSyntax(
-                """
-                @_PersistedProperty
-                private var \(raw: legacyPropertyName): Date?
-                """
+                "private var \(raw: legacyPropertyName): Date?"
             )
             properties.append(DeclSyntax(legacyProperty))
         }
         
         // Build GMT storage property
+        // SwiftData automatically persists stored properties in @Model classes
         let gmtProperty = try VariableDeclSyntax(
-            """
-            @_PersistedProperty
-            public var \(raw: gmtPropertyName): Date?
-            """
+            "public var \(raw: gmtPropertyName): Date?"
         )
         properties.append(DeclSyntax(gmtProperty))
         
         // Build private cached local date property
+        // SwiftData automatically persists stored properties in @Model classes
         let cachedProperty = try VariableDeclSyntax(
-            """
-            @_PersistedProperty
-            private(set) var \(raw: cachedPropertyName): Date?
-            """
+            "private(set) var \(raw: cachedPropertyName): Date?"
         )
         properties.append(DeclSyntax(cachedProperty))
         
