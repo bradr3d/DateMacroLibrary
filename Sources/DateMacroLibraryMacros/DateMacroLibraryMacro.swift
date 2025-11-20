@@ -15,7 +15,7 @@ public struct LocalizedDateMacro: DeclarationMacro {
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
         // Extract baseName from macro arguments (required parameter)
-        let arguments = node.argumentList
+        let arguments = node.arguments
         
         var baseName: String?
         var withTimeProperty: String?
@@ -55,18 +55,25 @@ public struct LocalizedDateMacro: DeclarationMacro {
         // Build legacy property if needed
         if let legacyPropertyName = legacyPropertyName {
             let legacyProperty = try VariableDeclSyntax(
-                "private var \(raw: legacyPropertyName): Date?"
+                """
+                @_PersistedProperty
+                private var \(raw: legacyPropertyName): Date?
+                """
             )
             properties.append(DeclSyntax(legacyProperty))
         }
         
         // Build GMT storage property
         let gmtProperty = try VariableDeclSyntax(
-            "public var \(raw: gmtPropertyName): Date?"
+            """
+            @_PersistedProperty
+            public var \(raw: gmtPropertyName): Date?
+            """
         )
         properties.append(DeclSyntax(gmtProperty))
         
         // Build private cached local date property
+        // Note: This is cached/derived, so it doesn't need @_PersistedProperty
         let cachedProperty = try VariableDeclSyntax(
             "private(set) var \(raw: cachedPropertyName): Date?"
         )
