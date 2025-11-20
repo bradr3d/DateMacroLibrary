@@ -38,10 +38,14 @@ public struct LocalizedDateMacro: PeerMacro {
             let endIndex = identifier.index(identifier.endIndex, offsetBy: -4) // "Date".count
             baseName = String(identifier[..<endIndex])
             localPropertyName = identifier
-        } else {
-            // Property doesn't end with "Date" - append "Date" to create the public property name
+        } else if identifier.hasSuffix("Local") {
+            // Property ends with "Local" (e.g., "dueLocal") -> extract baseName and append "Date"
             // e.g., "dueLocal" -> baseName "due", public property "dueLocalDate"
-            // e.g., "startLocal" -> baseName "start", public property "startLocalDate"
+            let endIndex = identifier.index(identifier.endIndex, offsetBy: -5) // "Local".count
+            baseName = String(identifier[..<endIndex])
+            localPropertyName = "\(identifier)Date"
+        } else {
+            // Property doesn't end with "Date" or "Local" - append "Date" to create the public property name
             // e.g., "recurringEnd" -> baseName "recurringEnd", public property "recurringEndDate"
             baseName = identifier
             localPropertyName = "\(identifier)Date"
@@ -69,6 +73,8 @@ public struct LocalizedDateMacro: PeerMacro {
         }
         
         // Generate property names
+        // For properties ending with "Local", baseName is just the prefix (e.g., "due" from "dueLocal")
+        // For others, baseName is the full identifier minus "Date" or "LocalDate"
         let gmtPropertyName = "\(baseName)GMTDate"
         let cachedPropertyName = "_\(baseName)LocalDate"
         
@@ -108,20 +114,44 @@ public struct LocalizedDateMacro: PeerMacro {
         }
         
         // Cache population logic
-        let withTimeArg = withTimeProperty ?? "false"
-        let isDueDateArg = isDueDate ? "true" : "false"
-        getterCode += """
-        if \(cachedPropertyName) == nil && \(gmtPropertyName) != nil {
-            \(cachedPropertyName) = Self.localDate(from: \(gmtPropertyName), withTime: \(withTimeArg), isDueDate: \(isDueDateArg))
+        // If withTimeProperty is provided, read it at runtime; otherwise use false
+        let withTimeExpression: String
+        if let withTimeProperty = withTimeProperty {
+            withTimeExpression = "self.\(withTimeProperty)"
+        } else {
+            withTimeExpression = "false"
         }
-        return \(cachedPropertyName)
-        """
+        let isDueDateArg = isDueDate ? "true" : "false"
+        
+        // If withTimeProperty is provided, we need to always recalculate based on current value
+        // since it can change at runtime. The cache is still used but always recalculated
+        // to ensure it reflects the current withTime value.
+        if withTimeProperty != nil {
+            // Always recalculate when withTime can change at runtime
+            // This ensures that if hasDueTime/hasStartTime changes, the conversion uses the new value
+            getterCode += """
+            if \(gmtPropertyName) != nil {
+                // Always recalculate to use current withTime value (can change at runtime)
+                \(cachedPropertyName) = Self.localDate(from: \(gmtPropertyName), withTime: \(withTimeExpression), isDueDate: \(isDueDateArg))
+            } else {
+                \(cachedPropertyName) = nil
+            }
+            return \(cachedPropertyName)
+            """
+        } else {
+            // Cache when withTime is constant
+            getterCode += """
+            if \(cachedPropertyName) == nil && \(gmtPropertyName) != nil {
+                \(cachedPropertyName) = Self.localDate(from: \(gmtPropertyName), withTime: \(withTimeExpression), isDueDate: \(isDueDateArg))
+            }
+            return \(cachedPropertyName)
+            """
+        }
         
         // Build setter statements  
-        let setterWithTimeArg = withTimeProperty ?? "false"
         var setterCode = """
-        \(gmtPropertyName) = Self.gmtDate(from: newValue, withTime: \(setterWithTimeArg), isDueDate: \(isDueDateArg))
-        \(cachedPropertyName) = Self.localDate(from: \(gmtPropertyName), withTime: \(setterWithTimeArg), isDueDate: \(isDueDateArg))
+        \(gmtPropertyName) = Self.gmtDate(from: newValue, withTime: \(withTimeExpression), isDueDate: \(isDueDateArg))
+        \(cachedPropertyName) = Self.localDate(from: \(gmtPropertyName), withTime: \(withTimeExpression), isDueDate: \(isDueDateArg))
         """
         
         // Add setter side effects
