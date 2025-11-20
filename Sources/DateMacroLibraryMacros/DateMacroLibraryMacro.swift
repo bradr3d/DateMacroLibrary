@@ -22,6 +22,7 @@ public struct LocalizedDateMacro: DeclarationMacro {
         var isDueDate: Bool = true
         var legacyPropertyName: String?
         var setterSideEffects: String?
+        var includeLegacyComputedProperty: Bool = false
         
         for argument in arguments {
             let label = argument.label?.text
@@ -35,6 +36,8 @@ public struct LocalizedDateMacro: DeclarationMacro {
                 legacyPropertyName = stringLiteral.segments.first?.as(StringSegmentSyntax.self)?.content.text
             } else if label == "setterSideEffects", let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self) {
                 setterSideEffects = stringLiteral.segments.first?.as(StringSegmentSyntax.self)?.content.text
+            } else if label == "includeLegacyComputedProperty", let boolLiteral = argument.expression.as(BooleanLiteralExprSyntax.self) {
+                includeLegacyComputedProperty = boolLiteral.literal.text == "true"
             }
         }
         
@@ -144,6 +147,26 @@ public struct LocalizedDateMacro: DeclarationMacro {
             """
         )
         properties.append(DeclSyntax(computedProperty))
+        
+        // Optionally generate a legacy computed property without "Local" in the name
+        // This forwards to the LocalDate property for backward compatibility
+        if includeLegacyComputedProperty {
+            let legacyComputedPropertyName = "\(baseName)Date"
+            let legacyComputedProperty = try VariableDeclSyntax(
+                """
+                @Transient
+                public var \(raw: legacyComputedPropertyName): Date? {
+                    get {
+                        return \(raw: localPropertyName)
+                    }
+                    set {
+                        \(raw: localPropertyName) = newValue
+                    }
+                }
+                """
+            )
+            properties.append(DeclSyntax(legacyComputedProperty))
+        }
         
         return properties
     }
