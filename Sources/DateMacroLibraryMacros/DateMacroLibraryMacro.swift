@@ -7,53 +7,17 @@ import SwiftSyntaxMacros
 /// 
 /// Usage:
 /// ```swift
-/// @LocalizedDate(baseName: "due", withTimeProperty: "hasDueTime", isDueDate: true, setterSideEffects: "sortDueDate = _dueLocalDate ?? Date.distantFuture; updateMinDate()")
+/// #LocalizedDate(baseName: "due", withTimeProperty: "hasDueTime", isDueDate: true, setterSideEffects: "sortDueDate = _dueLocalDate ?? Date.distantFuture; updateMinDate()")
 /// ```
-public struct LocalizedDateMacro: PeerMacro {
+public struct LocalizedDateMacro: DeclarationMacro {
     public static func expansion(
-        of node: AttributeSyntax,
-        providingPeersOf declaration: some DeclSyntaxProtocol,
+        of node: some FreestandingMacroExpansionSyntax,
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
-        // Extract property name from declaration
-        guard let variableDecl = declaration.as(VariableDeclSyntax.self),
-              let binding = variableDecl.bindings.first,
-              let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
-            throw MacroError.invalidDeclaration
-        }
+        // Extract baseName from macro arguments (required parameter)
+        let arguments = node.argumentList
         
-        // Extract baseName from property name and generate the public property name
-        // If property ends with "LocalDate" or "Date", use it as-is
-        // Otherwise, append "Date" to the property name (e.g., "dueLocal" -> "dueLocalDate")
-        let baseName: String
-        let localPropertyName: String
-        
-        if identifier.hasSuffix("LocalDate") {
-            // Property already ends with "LocalDate" (e.g., "dueLocalDate")
-            let endIndex = identifier.index(identifier.endIndex, offsetBy: -9) // "LocalDate".count
-            baseName = String(identifier[..<endIndex])
-            localPropertyName = identifier
-        } else if identifier.hasSuffix("Date") && !identifier.hasSuffix("LocalDate") {
-            // Property ends with "Date" but not "LocalDate" (e.g., "recurringEndDate")
-            let endIndex = identifier.index(identifier.endIndex, offsetBy: -4) // "Date".count
-            baseName = String(identifier[..<endIndex])
-            localPropertyName = identifier
-        } else if identifier.hasSuffix("Local") {
-            // Property ends with "Local" (e.g., "dueLocal") -> extract baseName and append "Date"
-            // e.g., "dueLocal" -> baseName "due", public property "dueLocalDate"
-            let endIndex = identifier.index(identifier.endIndex, offsetBy: -5) // "Local".count
-            baseName = String(identifier[..<endIndex])
-            localPropertyName = "\(identifier)Date"
-        } else {
-            // Property doesn't end with "Date" or "Local" - append "Date" to create the public property name
-            // e.g., "recurringEnd" -> baseName "recurringEnd", public property "recurringEndDate"
-            baseName = identifier
-            localPropertyName = "\(identifier)Date"
-        }
-        
-        // Extract macro arguments
-        let arguments = node.arguments?.as(LabeledExprListSyntax.self) ?? LabeledExprListSyntax([])
-        
+        var baseName: String?
         var withTimeProperty: String?
         var isDueDate: Bool = true
         var legacyPropertyName: String?
@@ -61,7 +25,9 @@ public struct LocalizedDateMacro: PeerMacro {
         
         for argument in arguments {
             let label = argument.label?.text
-            if label == "withTimeProperty", let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self) {
+            if label == "baseName", let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self) {
+                baseName = stringLiteral.segments.first?.as(StringSegmentSyntax.self)?.content.text
+            } else if label == "withTimeProperty", let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self) {
                 withTimeProperty = stringLiteral.segments.first?.as(StringSegmentSyntax.self)?.content.text
             } else if label == "isDueDate", let boolLiteral = argument.expression.as(BooleanLiteralExprSyntax.self) {
                 isDueDate = boolLiteral.literal.text == "true"
@@ -72,11 +38,14 @@ public struct LocalizedDateMacro: PeerMacro {
             }
         }
         
+        guard let baseName = baseName else {
+            throw MacroError.missingBaseName
+        }
+        
         // Generate property names
-        // For properties ending with "Local", baseName is just the prefix (e.g., "due" from "dueLocal")
-        // For others, baseName is the full identifier minus "Date" or "LocalDate"
         let gmtPropertyName = "\(baseName)GMTDate"
         let cachedPropertyName = "_\(baseName)LocalDate"
+        let localPropertyName = "\(baseName)LocalDate"
         
         var properties: [DeclSyntax] = []
         
@@ -159,10 +128,11 @@ public struct LocalizedDateMacro: PeerMacro {
             setterCode += "\n\(sideEffects)"
         }
         
-        // Generate the computed property with the "Date" suffix appended if needed
-        // The user's declaration (e.g., "dueLocal") is just a placeholder for the macro
+        // Generate the computed property with @Transient attribute
+        // This is a computed property derived from GMT date and shouldn't be persisted
         let computedProperty = try VariableDeclSyntax(
             """
+            @Transient
             public var \(raw: localPropertyName): Date? {
                 get {
                     \(raw: getterCode)
@@ -182,6 +152,7 @@ public struct LocalizedDateMacro: PeerMacro {
 enum MacroError: Error {
     case invalidDeclaration
     case invalidPropertyName(String)
+    case missingBaseName
 }
 
 @main
