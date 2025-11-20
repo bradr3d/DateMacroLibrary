@@ -140,9 +140,10 @@ public struct LocalizedDateMacro: DeclarationMacro {
             setterCode += "\n\(sideEffects)"
         }
         
-        // Generate the computed property (no @Transient - computed properties aren't persisted anyway)
+        // Generate the computed property with @Transient
         let computedProperty = try VariableDeclSyntax(
             """
+            @Transient
             public var \(raw: localPropertyName): Date? {
                 get {
                     \(raw: getterCode)
@@ -161,6 +162,7 @@ public struct LocalizedDateMacro: DeclarationMacro {
             let legacyComputedPropertyName = "\(baseName)Date"
             let legacyComputedProperty = try VariableDeclSyntax(
                 """
+                @Transient
                 public var \(raw: legacyComputedPropertyName): Date? {
                     get {
                         return \(raw: localPropertyName)
