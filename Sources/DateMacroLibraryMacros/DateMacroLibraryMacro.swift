@@ -73,9 +73,11 @@ public struct LocalizedDateMacro: DeclarationMacro {
         properties.append(DeclSyntax(gmtProperty))
         
         // Build private cached local date property
-        // Note: This is cached/derived, so it doesn't need @_PersistedProperty
         let cachedProperty = try VariableDeclSyntax(
-            "private(set) var \(raw: cachedPropertyName): Date?"
+            """
+            @_PersistedProperty
+            private(set) var \(raw: cachedPropertyName): Date?
+            """
         )
         properties.append(DeclSyntax(cachedProperty))
         
@@ -138,11 +140,9 @@ public struct LocalizedDateMacro: DeclarationMacro {
             setterCode += "\n\(sideEffects)"
         }
         
-        // Generate the computed property with @Transient attribute
-        // This is a computed property derived from GMT date and shouldn't be persisted
+        // Generate the computed property (no @Transient - computed properties aren't persisted anyway)
         let computedProperty = try VariableDeclSyntax(
             """
-            @Transient
             public var \(raw: localPropertyName): Date? {
                 get {
                     \(raw: getterCode)
@@ -161,7 +161,6 @@ public struct LocalizedDateMacro: DeclarationMacro {
             let legacyComputedPropertyName = "\(baseName)Date"
             let legacyComputedProperty = try VariableDeclSyntax(
                 """
-                @Transient
                 public var \(raw: legacyComputedPropertyName): Date? {
                     get {
                         return \(raw: localPropertyName)
