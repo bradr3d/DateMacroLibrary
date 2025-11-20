@@ -22,41 +22,29 @@ public struct LocalizedDateMacro: PeerMacro {
             throw MacroError.invalidDeclaration
         }
         
-        // Extract baseName from property name (remove "LocalDate" or "Date" suffix)
-        // Handle placeholder properties ending with "Macro" (e.g., "_dueLocalDateMacro" -> "due")
+        // Extract baseName from property name and generate the public property name
+        // If property ends with "LocalDate" or "Date", use it as-is
+        // Otherwise, append "Date" to the property name (e.g., "dueLocal" -> "dueLocalDate")
         let baseName: String
         let localPropertyName: String
         
-        // Check if it's a placeholder property ending with "Macro"
-        if identifier.hasSuffix("Macro") {
-            // Extract the part before "Macro" and check if it contains "LocalDate"
-            let macroEndIndex = identifier.index(identifier.endIndex, offsetBy: -5) // "Macro".count
-            let withoutMacro = String(identifier[..<macroEndIndex])
-            
-            if withoutMacro.hasSuffix("LocalDate") {
-                let localDateEndIndex = withoutMacro.index(withoutMacro.endIndex, offsetBy: -9) // "LocalDate".count
-                baseName = String(withoutMacro[..<localDateEndIndex])
-                // Remove leading underscore and "Macro" suffix to get the public property name
-                let publicName = withoutMacro.hasPrefix("_") ? String(withoutMacro.dropFirst()) : withoutMacro
-                localPropertyName = publicName
-            } else if withoutMacro.hasSuffix("Date") {
-                let dateEndIndex = withoutMacro.index(withoutMacro.endIndex, offsetBy: -4) // "Date".count
-                baseName = String(withoutMacro[..<dateEndIndex])
-                let publicName = withoutMacro.hasPrefix("_") ? String(withoutMacro.dropFirst()) : withoutMacro
-                localPropertyName = publicName
-            } else {
-                throw MacroError.invalidPropertyName(identifier)
-            }
-        } else if identifier.hasSuffix("LocalDate") {
+        if identifier.hasSuffix("LocalDate") {
+            // Property already ends with "LocalDate" (e.g., "dueLocalDate")
             let endIndex = identifier.index(identifier.endIndex, offsetBy: -9) // "LocalDate".count
             baseName = String(identifier[..<endIndex])
-            localPropertyName = identifier // Use the original name
+            localPropertyName = identifier
         } else if identifier.hasSuffix("Date") && !identifier.hasSuffix("LocalDate") {
+            // Property ends with "Date" but not "LocalDate" (e.g., "recurringEndDate")
             let endIndex = identifier.index(identifier.endIndex, offsetBy: -4) // "Date".count
             baseName = String(identifier[..<endIndex])
-            localPropertyName = identifier // Use the original name (e.g., "recurringEndDate")
+            localPropertyName = identifier
         } else {
-            throw MacroError.invalidPropertyName(identifier)
+            // Property doesn't end with "Date" - append "Date" to create the public property name
+            // e.g., "dueLocal" -> baseName "due", public property "dueLocalDate"
+            // e.g., "startLocal" -> baseName "start", public property "startLocalDate"
+            // e.g., "recurringEnd" -> baseName "recurringEnd", public property "recurringEndDate"
+            baseName = identifier
+            localPropertyName = "\(identifier)Date"
         }
         
         // Extract macro arguments
@@ -141,8 +129,8 @@ public struct LocalizedDateMacro: PeerMacro {
             setterCode += "\n\(sideEffects)"
         }
         
-        // Generate the computed property - the user's declaration will be replaced/ignored
-        // Build computed property with getter/setter
+        // Generate the computed property with the "Date" suffix appended if needed
+        // The user's declaration (e.g., "dueLocal") is just a placeholder for the macro
         let computedProperty = try VariableDeclSyntax(
             """
             public var \(raw: localPropertyName): Date? {

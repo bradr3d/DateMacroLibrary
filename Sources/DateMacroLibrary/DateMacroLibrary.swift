@@ -3,19 +3,24 @@
 
 /// A macro that generates GMT/local date conversion properties for date localization.
 /// 
-/// The baseName is automatically extracted from the property name by removing the "LocalDate" suffix.
-/// For example, `dueLocalDate` will extract "due" as the baseName.
+/// The property name you declare is used as the base name. If it doesn't end with "Date",
+/// the macro automatically appends "Date" to create the public property name.
+/// 
+/// Examples:
+/// - `dueLocal` → generates `dueLocalDate` (baseName: "dueLocal")
+/// - `dueLocalDate` → generates `dueLocalDate` (baseName: "due")
+/// - `recurringEnd` → generates `recurringEndDate` (baseName: "recurringEnd")
 /// 
 /// This macro generates:
 /// - A GMT storage property: `{baseName}GMTDate: Date?`
 /// - A private cached local date property: `_{baseName}LocalDate: Date?`
-/// - A public computed property: `{baseName}LocalDate: Date?` with getter/setter
+/// - A public computed property: `{propertyName}Date: Date?` with getter/setter
 /// - Optional legacy property migration support
 ///
 /// Example:
 /// ```swift
 /// @LocalizedDate(withTimeProperty: "hasDueTime", isDueDate: true, setterSideEffects: "sortDueDate = _dueLocalDate ?? Date.distantFuture; updateMinDate()")
-/// public var dueLocalDate: Date?
+/// var dueLocal: Date?  // Macro generates dueLocalDate as the public computed property
 /// ```
 @attached(peer, names: arbitrary)
 public macro LocalizedDate(
