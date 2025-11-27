@@ -2,6 +2,7 @@ import SwiftCompilerPlugin
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
+import SwiftDiagnostics
 
 /// Implementation of the `LocalizedDate` macro, which generates GMT/local date conversion properties
 /// 
@@ -181,7 +182,7 @@ public struct LocalizedDateMacro: DeclarationMacro {
 }
 
 /// Implementation of the `IdentifiableEnum` macro, which adds Identifiable conformance and id property to enums
-public struct IdentifiableEnumMacro: MemberMacro, ExtensionMacro {
+public struct IdentifiableEnumMacro: MemberMacro {
     public static func expansion(
         of node: AttributeSyntax,
         providingMembersOf declaration: some DeclGroupSyntax,
@@ -189,48 +190,75 @@ public struct IdentifiableEnumMacro: MemberMacro, ExtensionMacro {
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
         // Verify that the declaration is an enum
-        guard declaration.as(EnumDeclSyntax.self) != nil else {
+        guard let enumDecl = declaration.as(EnumDeclSyntax.self) else {
             throw MacroError.invalidDeclaration
         }
         
-        // Generate the id property
+        // Check if the enum is private and emit a diagnostic with fix-it
+        if let privateModifier = enumDecl.modifiers.first(where: { $0.name.text == "private" }) {
+            // Create a new modifier list without the private modifier
+            let filteredModifiers = enumDecl.modifiers.filter { $0.name.text != "private" }
+            let newModifiers = DeclModifierListSyntax(filteredModifiers)
+            
+            let diagnostic = Diagnostic(
+                node: Syntax(privateModifier),
+                message: IdentifiableEnumError.privateEnumNotSupported,
+                fixIts: [
+                    FixIt(
+                        message: RemovePrivateFixItMessage(),
+                        changes: [
+                            FixIt.Change.replace(
+                                oldNode: Syntax(enumDecl.modifiers),
+                                newNode: Syntax(newModifiers)
+                            )
+                        ]
+                    )
+                ]
+            )
+            context.diagnose(diagnostic)
+            throw MacroError.privateEnumNotSupported
+        }
+        
+        // Get the access level of the enum to match it for the property
+        let accessLevel = enumDecl.modifiers.first(where: { modifier in
+            let text = modifier.name.text
+            return text == "fileprivate" || text == "internal" || text == "public" || text == "open"
+        })?.name.text ?? ""
+        
+        // Generate the id property with matching access level
+        let accessPrefix = accessLevel.isEmpty ? "" : "\(accessLevel) "
         let idProperty = try VariableDeclSyntax(
             """
-            var id: Self { self }
+            \(raw: accessPrefix)var id: Self { self }
             """
         )
         
         return [DeclSyntax(idProperty)]
     }
+}
+
+struct IdentifiableEnumError: DiagnosticMessage {
+    let message: String
+    let diagnosticID: MessageID
+    let severity: DiagnosticSeverity
     
-    public static func expansion(
-        of node: AttributeSyntax,
-        attachedTo declaration: some DeclGroupSyntax,
-        providingExtensionsOf type: some TypeSyntaxProtocol,
-        conformingTo protocols: [TypeSyntax],
-        in context: some MacroExpansionContext
-    ) throws -> [ExtensionDeclSyntax] {
-        // Verify that the declaration is an enum
-        guard declaration.as(EnumDeclSyntax.self) != nil else {
-            throw MacroError.invalidDeclaration
-        }
-        
-        // Add Identifiable conformance via extension
-        let identifiableType: TypeSyntax = "Identifiable"
-        let extensionDecl = try ExtensionDeclSyntax(
-            """
-            extension \(type): \(identifiableType) {}
-            """
-        )
-        
-        return [extensionDecl]
-    }
+    static let privateEnumNotSupported = IdentifiableEnumError(
+        message: "@IdentifiableEnum cannot be applied to private enums. Remove 'private' to make it internal, or change to 'fileprivate', 'internal', or 'public'",
+        diagnosticID: MessageID(domain: "DateMacroLibrary", id: "privateEnumNotSupported"),
+        severity: .error
+    )
+}
+
+struct RemovePrivateFixItMessage: FixItMessage {
+    var message: String { "Remove 'private' to make it internal" }
+    var fixItID: MessageID { MessageID(domain: "DateMacroLibrary", id: "removePrivate") }
 }
 
 enum MacroError: Error {
     case invalidDeclaration
     case invalidPropertyName(String)
     case missingBaseName
+    case privateEnumNotSupported
 }
 
 @main

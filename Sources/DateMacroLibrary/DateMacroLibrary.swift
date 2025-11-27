@@ -28,21 +28,23 @@ public macro LocalizedDate(
     includeLegacyComputedProperty: Bool = false
 ) = #externalMacro(module: "DateMacroLibraryMacros", type: "LocalizedDateMacro")
 
-/// An attached macro that adds Identifiable conformance and an id property to an enum.
+/// An attached macro that adds an id property to an enum for Identifiable conformance.
 ///
 /// This macro:
-/// - Adds `Identifiable` protocol conformance to the enum
-/// - Adds `var id: Self { self }` property
+/// - Adds `var id: Self { self }` property (with matching access level)
+///
+/// Note: You must manually add `: Identifiable` to your enum declaration.
+/// The macro will add the required `id` property with the same access level as the enum.
+/// Private enums are not supported - use `fileprivate`, `internal`, or `public` instead.
 ///
 /// Example:
 /// ```swift
 /// @IdentifiableEnum
-/// enum Status {
+/// enum Status: Identifiable {
 ///     case active
 ///     case inactive
 /// }
-/// // The enum now conforms to Identifiable and has var id: Self { self }
+/// // The enum has var id: Self { self }
 /// ```
 @attached(member, names: named(id))
-@attached(extension, conformances: Identifiable)
 public macro IdentifiableEnum() = #externalMacro(module: "DateMacroLibraryMacros", type: "IdentifiableEnumMacro")
