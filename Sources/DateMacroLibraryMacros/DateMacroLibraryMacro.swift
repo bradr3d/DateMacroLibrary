@@ -180,6 +180,53 @@ public struct LocalizedDateMacro: DeclarationMacro {
     }
 }
 
+/// Implementation of the `IdentifiableEnum` macro, which adds Identifiable conformance and id property to enums
+public struct IdentifiableEnumMacro: MemberMacro, ExtensionMacro {
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        conformingTo protocols: [TypeSyntax],
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        // Verify that the declaration is an enum
+        guard declaration.as(EnumDeclSyntax.self) != nil else {
+            throw MacroError.invalidDeclaration
+        }
+        
+        // Generate the id property
+        let idProperty = try VariableDeclSyntax(
+            """
+            var id: Self { self }
+            """
+        )
+        
+        return [DeclSyntax(idProperty)]
+    }
+    
+    public static func expansion(
+        of node: AttributeSyntax,
+        attachedTo declaration: some DeclGroupSyntax,
+        providingExtensionsOf type: some TypeSyntaxProtocol,
+        conformingTo protocols: [TypeSyntax],
+        in context: some MacroExpansionContext
+    ) throws -> [ExtensionDeclSyntax] {
+        // Verify that the declaration is an enum
+        guard declaration.as(EnumDeclSyntax.self) != nil else {
+            throw MacroError.invalidDeclaration
+        }
+        
+        // Add Identifiable conformance via extension
+        let identifiableType: TypeSyntax = "Identifiable"
+        let extensionDecl = try ExtensionDeclSyntax(
+            """
+            extension \(type): \(identifiableType) {}
+            """
+        )
+        
+        return [extensionDecl]
+    }
+}
+
 enum MacroError: Error {
     case invalidDeclaration
     case invalidPropertyName(String)
@@ -190,5 +237,6 @@ enum MacroError: Error {
 struct DateMacroLibraryPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
         LocalizedDateMacro.self,
+        IdentifiableEnumMacro.self,
     ]
 }
